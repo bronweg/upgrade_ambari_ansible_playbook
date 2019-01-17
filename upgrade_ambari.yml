@@ -1,0 +1,125 @@
+---
+- name: Upgrade Ambari Cluster
+  hosts: HDF-cluster-prod
+  become: yes
+  vars:
+    ambari_admin_user: "admin"
+    ambari_admin_password: "admin"
+  tasks:
+  - name: Stop services on ambari and waiting for tasks finish
+    include: included_start_or_stop_ambari_services.yml service="{{item}}" action="Stop"
+    with_items:
+        - NIFI_REGISTRY
+        - NIFI
+        - AMBARI_METRICS
+
+  - name: stop ambari server
+    block:
+      - name: stop ambari server via ambari-server api
+        command: ambari-server stop
+
+      - name: Ensure that ambari-server systemd process is stopped
+        systemd:
+          name: ambari-server
+          state: stopped
+    when: "'AMBARI-SERVER' in group_names"
+
+  - name: stop ambari agents
+    block:
+      - name: stop ambari agents via ambari-agent api
+        command: ambari-agent stop
+
+      - name: Ensure that ambari-agent systemd processes are stopped
+        systemd:
+          name: ambari-agent
+          state: stopped
+
+  - name: backup old ambari repo
+    command: mv /etc/yum.repos.d/ambari.repo /etc/yum.repos.d/ambari.repo.old
+
+  - name: download new ambari repo
+    get_url:
+      url: http://public-repo-1.hortonworks.com/ambari/centos7/2.x/updates/2.7.1.0/ambari.repo
+      dest: /etc/yum.repos.d/ambari.repo
+      mode: 0644 
+
+  - import_role:
+      name: upgrade_ambari
+
+  - name: backup old ambari resources folder
+    command: cp -r /var/lib/ambari-server/resources /var/lib/ambari-server/resources.backup
+    when: "'AMBARI-SERVER' in group_names"
+
+  - import_role:
+      name: upgrade_mpack
+
+  - name: Back up all databases
+    command: pg_dumpall -f /tmp/dump_all.sql
+    become: yes
+    become_user: postgres
+    when: "'POSTGRES' in group_names"
+
+  #- name: postgres public schema will be used
+  #  block:
+  #    - name: Change owner of schema "public" to user "ambari"
+  #      command: echo "ALTER SCHEMA public OWNER TO ambari;" | psql ambari
+  #      become: yes
+  #      become_user: postgres
+  #      when: "'POSTGRES' in group_names"
+  #
+  #    - name: Set the Ambari DataBase facts
+  #      set_fact:
+  #        ambari_database_options: "--databasehost={{ inventory_hostname }} \
+  #                                  --database=postgres \
+  #                                  --databaseport=5432 \
+  #                                  --databasename=ambari \
+  #                                  --databaseusername=ambari \
+  #                                  --databasepassword=ambari \
+  #                                  --postgresschema=public"
+  #      when: "'POSTGRES' in group_names"
+  #
+  #    - name: Update the Ambari Database Schema
+  #      command: ambari-server setup --silent "{{ ambari_database_options }}"
+  #      when: "'AMBARI-SERVER' in group_names"
+
+  - name: Upgrade the Ambari Database Schema
+    command: ambari-server upgrade --silent
+    when: "'AMBARI-SERVER' in group_names"
+
+  - name: start ambari server
+    block:
+      - name: start ambari server via ambari-server api
+        command: ambari-server start
+
+      - name: Ensure that ambari-server systemd process is enabled
+        systemd:
+          name: ambari-server
+          enabled: yes
+    when: "'AMBARI-SERVER' in group_names"
+
+  - name: start ambari agents
+    block:
+      - name: start ambari agents via ambari-agent api
+        command: ambari-agent start
+
+      - name: Ensure that ambari-agent systemd processes are enabled
+        systemd:
+          name: ambari-agent
+          enabled: yes
+
+  - name: NIFI toolkit directory renaming
+    block:
+      - name: check that wrong-name NIFI toolkit directory actually exists
+        stat: path=/var/lib/ambari-agent/tmp/nifi-toolkit-1.5.0.3.1.1.0-35
+        register: directory_exists
+
+      - name: Rename wrong-name NIFI toolkit directory
+        command: mv /var/lib/ambari-agent/tmp/nifi-toolkit-1.5.0.3.1.1.0-35 /var/lib/ambari-agent/tmp/nifi-toolkit-1.5.0.3.1.2.0-7
+        when: directory_exists.stat.exists
+
+  - name: Start services on ambari and waiting for tasks finish
+    include: included_start_or_stop_ambari_services.yml service="{{item}}" action="Start"
+    with_items:
+        - NIFI_REGISTRY
+        - NIFI
+        - AMBARI_METRICS

@@ -1,0 +1,23 @@
+- name: Copy ambari-server installation file to ambari server node
+  copy:
+    src: ambari-server-2.7.1.0-169.x86_64.rpm
+    dest: /home/dba/
+  when: "'AMBARI-SERVER' in group_names"
+
+- name: Copy ambari-agent installation file to ambari agent nodes
+  copy:
+    src: ambari-agent-2.7.1.0-169.x86_64.rpm
+    dest: /home/dba/
+
+- name: upgrade ambari server
+  yum:
+    name: /home/dba/ambari-server-2.7.1.0-169.x86_64.rpm
+    state: latest
+    update_cache: yes
+  when: "'AMBARI-SERVER' in group_names"
+
+- name: upgrade ambari agents
+  yum:
+    name: /home/dba/ambari-agent-2.7.1.0-169.x86_64.rpm
+    state: latest
+    update_cache: yes

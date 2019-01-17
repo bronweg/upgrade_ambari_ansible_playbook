@@ -1,0 +1,9 @@
+- name: Copy ambari-server installation file to ambari server node
+  copy:
+    src: hdf-ambari-mpack-3.2.0.0-520.tar.gz
+    dest: /home/dba/
+  when: "'AMBARI-SERVER' in group_names"
+
+- name: Upgrade the HDF Management Pack
+  command: ambari-server upgrade-mpack --mpack=/home/dba/hdf-ambari-mpack-3.2.0.0-520.tar.gz
+  when: "'AMBARI-SERVER' in group_names"
